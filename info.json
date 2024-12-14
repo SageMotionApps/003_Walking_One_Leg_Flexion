@@ -1,0 +1,152 @@
+{
+  "user_guide_file": "Walking One Leg Flexion Angle App Guide.pdf",
+  "app_name": "Walking One Leg Flexion",
+  "app_description": "Measure and train left or right hip, knee, and ankle flexion angles during walking <br><br>Nodes Required: 6 <br> -Sensing (4): foot (top, switch pointing forward), shank (lateral, switch pointing up), thigh (lateral, switch pointing up), pelvis (back center, switch pointing up) <br> -Feedback (2): feedback_min, feedback_max",
+  "app_id": "003",
+  "app_version": "2_2",
+  "version_id": "00322",
+
+  "validated_version_range": [
+    "3.20.1",
+    "4.1.0"
+  ],
+  "parameters_setting": [
+    [
+      "Sensor Placement",
+      {
+        "source": "which_leg",
+        "title": "Which Leg?",
+        "type": "combo",
+        "validation": [
+          "Right Leg",
+          "Left Leg"
+        ],
+        "description": "Choose the leg you want to place the sensor"
+      }
+    ],
+    [
+      "Feedback Setting",
+      {
+        "source": "feedback_enabled",
+        "title": "Enable Feedback",
+        "type": "bool",
+        "description": "Enable/Disable feedback"
+      },
+      {
+        "source": "which_angle",
+        "title": "Which Feedback Measurement?",
+        "type": "combo",
+        "validation": [
+          "Hip Flex",
+          "Knee Flex",
+          "Ankle Flex"
+        ],
+        "description": "specify measurement angle for haptic feedback"
+      },
+      {
+        "source": "min_threshold",
+        "title": "Min Threshold Angle",
+        "type": "float",
+        "validation": [
+          -90,
+          90
+        ],
+        "description": "Feedback given when angle is less than this value"
+      },
+      {
+        "source": "max_threshold",
+        "title": "Max Threshold Angle",
+        "type": "float",
+        "validation": [
+          -90,
+          90
+        ],
+        "description": "Feedback given when angle is greater than this value"
+      },
+      {
+        "source": "feedback_delay",
+        "title": "Delay Time before Feedback (sec)",
+        "type": "float",
+        "description": "How long to wait after trial before giving haptic feedback pulse"
+      }
+    ],
+    [
+      "Save Options",
+      {
+        "source": "save_mode",
+        "title": "Save Mode",
+        "type": "combo",
+        "validation": [
+          "csv",
+          "h5",
+          "xlsx"
+        ],
+        "description": "Save file in specified format"
+      }
+    ]
+  ],
+  "user_fields": [
+    {
+      "name": "time",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "step_count",
+      "data_type": "int",
+      "size": 1
+    },
+    {
+      "name": "Gait_Phase",
+      "data_type": "int",
+      "size": 1
+    },
+    {
+      "name": "Hip_flex",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Knee_flex",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Ankle_flex",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "max_threshold",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "min_threshold",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "min_feedback_state",
+      "data_type": "int",
+      "size": 1
+    },
+    {
+      "name": "max_feedback_state",
+      "data_type": "int",
+      "size": 1
+    }
+  ],
+  "sensors": [
+    "foot",
+    "shank",
+    "thigh",
+    "pelvis"
+  ],
+  "feedback": [
+    "feedback_min",
+    "feedback_max"
+  ],
+  "pulse_length": 0.5,
+  "datarate": 100
+}
