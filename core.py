@@ -5,7 +5,7 @@ from sage.base_app import BaseApp
 
 from .gaitphase import GaitPhase
 from .Rotation import Rotation as R
-from .JointAngles import JointAngles
+from .JointAngles import JointAngles, IntrinsicZYXEuler
 
 
 def get_rotation(data, node_num):
@@ -132,6 +132,26 @@ class Core(BaseApp):
 
         time_now = self.iteration / self.DATARATE  # time in seconds
 
+        GB_pelvis_q = self.joint_angles.calculate_GB_quat(
+            self.pelvis_quat, self.joint_angles.BS_q_pelvis_inv
+            )
+
+        GB_thigh_q = self.joint_angles.calculate_GB_quat(
+            self.thigh_quat, self.joint_angles.BS_q_thigh_inv, self.joint_angles.thigh_Yawoffset_q
+        )
+        GB_shank_q = self.joint_angles.calculate_GB_quat(
+            self.shank_quat, self.joint_angles.BS_q_shank_inv, self.joint_angles.shank_Yawoffset_q
+            )
+        GB_foot_q = self.joint_angles.calculate_GB_quat(
+            self.foot_quat, self.joint_angles.BS_q_foot_inv, self.joint_angles.foot_Yawoffset_q
+            )
+        
+
+        foot_euler = IntrinsicZYXEuler(GB_foot_q)
+        pelvis_euler = IntrinsicZYXEuler(GB_pelvis_q)
+        thigh_euler = IntrinsicZYXEuler(GB_thigh_q)
+        shank_euler = IntrinsicZYXEuler(GB_shank_q)
+
         my_data = {
             "time": [time_now],
             "Gait_Phase": [self.gait_phase.gaitphase.value],
@@ -143,6 +163,19 @@ class Core(BaseApp):
             "Hip_flex": [self.Hip_flex],
             "Knee_flex": [self.Knee_flex],
             "Ankle_flex": [self.Ankle_flex],
+            "foot_yaw": [foot_euler.yaw],
+            "foot_roll": [foot_euler.roll],
+            "foot_pitch": [foot_euler.pitch],
+            "pelvis_yaw": [pelvis_euler.yaw],
+            "pelvis_roll": [pelvis_euler.roll],
+            "pelvis_pitch": [pelvis_euler.pitch],
+            "thigh_yaw": [thigh_euler.yaw],
+            "thigh_roll": [thigh_euler.roll],
+            "thigh_pitch": [thigh_euler.pitch],
+            "shank_yaw": [shank_euler.yaw],
+            "shank_roll": [shank_euler.roll],
+            "shank_pitch": [shank_euler.pitch],
+            
         }
 
         self.my_sage.save_data(data, my_data)

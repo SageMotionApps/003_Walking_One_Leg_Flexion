@@ -127,6 +127,12 @@ class JointAngles:
         # the pelvis and the thigh. Other segments are calculated in a similar way.
         B_q_hip_angles = GB_pelvis_q.inv() * GB_thigh_q
 
+        pelvis_angles = IntrinsicZYXEuler(GB_pelvis_q)
+        thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
+        Hip_flex = pelvis_angles.roll - thigh_angles.roll
+        Hip_flex = (Hip_flex + 180) % 360 - 180
+        return Hip_flex
+
         # We use the zyx euler angle order since lower case is the extrinsic or global
         # rotation order. These body joint angles are global rotations. We grab the last
         # element of the euler angle array since we want the rotation around the x axis.
@@ -145,6 +151,12 @@ class JointAngles:
             shank_quat, self.BS_q_shank_inv, self.shank_Yawoffset_q
         )
 
+        thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
+        shank_angles = IntrinsicZYXEuler(GB_shank_q)
+        Knee_flex = -(thigh_angles.roll - shank_angles.roll)
+        Knee_flex = (Knee_flex + 180) % 360 - 180
+        return Knee_flex
+
         B_q_knee_angles = GB_thigh_q.inv() * GB_shank_q
 
         # We use the zyx euler angle order since lower case is the extrinsic or global
@@ -162,6 +174,12 @@ class JointAngles:
         GB_foot_q = self.calculate_GB_quat(
             foot_quat, self.BS_q_foot_inv, self.foot_Yawoffset_q
         )
+
+        shank_angles = IntrinsicZYXEuler(GB_shank_q)
+        foot_angles = IntrinsicZYXEuler(GB_foot_q)
+        Ankle_flex = -(shank_angles.roll - foot_angles.roll)
+        Ankle_flex = (Ankle_flex + 180) % 360 - 180
+        return Ankle_flex
 
         B_q_ankle_angles = GB_shank_q.inv() * GB_foot_q
 
