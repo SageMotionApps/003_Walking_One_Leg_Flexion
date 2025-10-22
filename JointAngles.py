@@ -133,15 +133,6 @@ class JointAngles:
         Hip_flex = (Hip_flex + 180) % 360 - 180
         return Hip_flex
 
-        # We use the zyx euler angle order since lower case is the extrinsic or global
-        # rotation order. These body joint angles are global rotations. We grab the last
-        # element of the euler angle array since we want the rotation around the x axis.
-        # This is the same for the other angles too.
-        Hip_angles = B_q_hip_angles.as_euler("zyx", degrees=True)
-        Hip_angles = Hip_angles if B_q_hip_angles.single else Hip_angles[0]
-
-        return Hip_angles[2]
-
     def calculate_Knee_Flex(self, thigh_quat, shank_quat):
         GB_thigh_q = self.calculate_GB_quat(
             thigh_quat, self.BS_q_thigh_inv, self.thigh_Yawoffset_q
@@ -157,14 +148,6 @@ class JointAngles:
         Knee_flex = (Knee_flex + 180) % 360 - 180
         return Knee_flex
 
-        B_q_knee_angles = GB_thigh_q.inv() * GB_shank_q
-
-        # We use the zyx euler angle order since lower case is the extrinsic or global
-        # rotation order. These body joint angles are global rotations. Knee flexion
-        # angle rotates in the opposite direction, so we need to reverse the angle.
-        Knee_angles = B_q_knee_angles.as_euler("zyx", degrees=True)
-        Knee_angles = Knee_angles if B_q_knee_angles.single else Knee_angles[0]
-        return Knee_angles[2]
 
     def calculate_Ankle_Flex(self, shank_quat, foot_quat):
         GB_shank_q = self.calculate_GB_quat(
@@ -181,11 +164,3 @@ class JointAngles:
         Ankle_flex = (Ankle_flex + 180) % 360 - 180
         return Ankle_flex
 
-        B_q_ankle_angles = GB_shank_q.inv() * GB_foot_q
-
-        # We use the zyx euler angle order since lower case is the extrinsic or global
-        # rotation order. These body joint angles are global rotations.
-        Ankle_angles = B_q_ankle_angles.as_euler("zyx", degrees=True)
-        Ankle_angles = Ankle_angles if B_q_ankle_angles.single else Ankle_angles[0]
-
-        return Ankle_angles[2]
