@@ -3,8 +3,8 @@
   "app_name": "Walking One Leg Flexion",
   "app_description": "Measure and train left or right hip, knee, and ankle flexion angles during walking <br><br>Nodes Required: 6 <br> -Sensing (4): foot (top, switch pointing forward), shank (lateral, switch pointing up), thigh (lateral, switch pointing up), pelvis (back center, switch pointing up) <br> -Feedback (2): feedback_min, feedback_max",
   "app_id": "003",
-  "app_version": "2_2",
-  "version_id": "00322",
+  "app_version": "2_3",
+  "version_id": "00323",
   "validated_version_range": [
     "3.20.1",
     "4.1.0"
