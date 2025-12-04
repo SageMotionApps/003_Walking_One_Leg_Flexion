@@ -6,6 +6,7 @@ from sage.base_app import BaseApp
 from .gaitphase import GaitPhase
 from .Rotation import Rotation as R
 from .JointAngles import JointAngles, IntrinsicZYXEuler
+from .YawCorrection import YawCorrection
 
 
 def get_rotation(data, node_num):
@@ -42,14 +43,12 @@ class Core(BaseApp):
         self.NodeNum_feedback_min = self.info["feedback"].index("feedback_min")
         self.NodeNum_feedback_max = self.info["feedback"].index("feedback_max")
 
+        right_leg = self.config["which_leg"] == "Right Leg"
         self.iteration = 0
-        self.joint_angles = JointAngles(self.config["which_leg"] == "Right Leg")
+        self.joint_angles = JointAngles(right_leg)
         self.gait_phase = GaitPhase(self.DATARATE)
-
-        self.foot_quat = None
-        self.pelvis_quat = None
-        self.thigh_quat = None
-        self.shank_quat = None
+        self.yaw_correction = None
+        self.yaw_offsets = [0, -90, -90, 0] if right_leg else [0, 90, 90, 0]
 
         self.min_feedback_state = 0
         self.max_feedback_state = 0
@@ -98,30 +97,29 @@ class Core(BaseApp):
     def run_in_loop(self):
         data = self.my_sage.get_next_data()
 
-        # Get Quaternion Data
-        self.foot_quat = get_rotation(data, self.NodeNum_foot)
-        self.pelvis_quat = get_rotation(data, self.NodeNum_pelvis)
-        self.thigh_quat = get_rotation(data, self.NodeNum_thigh)
-        self.shank_quat = get_rotation(data, self.NodeNum_shank)
-
-        # Calibrate to find BS_q, sensor to body segment alignment quaternions on 1st iteration
+        # Initialize Yaw Correction and perform it
         if self.iteration == 0:
-            self.joint_angles.calibrate(
-                self.foot_quat, self.pelvis_quat, self.thigh_quat, self.shank_quat
+            self.yaw_correction = YawCorrection(
+                data, self.NodeNum_pelvis, self.yaw_offsets
             )
+        YC_data = self.yaw_correction.correct_yaw(data)
+
+        # Get Quaternion Data
+        foot_quat = get_rotation(YC_data, self.NodeNum_foot)
+        pelvis_quat = get_rotation(YC_data, self.NodeNum_pelvis)
+        thigh_quat = get_rotation(YC_data, self.NodeNum_thigh)
+        shank_quat = get_rotation(YC_data, self.NodeNum_shank)
+
+        # Perform joint angle calibration
+        if self.iteration == 0:
+            self.joint_angles.calibrate(foot_quat, pelvis_quat, thigh_quat, shank_quat)
         # Update gait phases
         self.gait_phase.update_gaitphase(data[self.NodeNum_foot])
 
         # Calculate Extension angles
-        self.Hip_flex = self.joint_angles.calculate_Hip_Flex(
-            self.pelvis_quat, self.thigh_quat
-        )
-        self.Knee_flex = self.joint_angles.calculate_Knee_Flex(
-            self.thigh_quat, self.shank_quat
-        )
-        self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(
-            self.shank_quat, self.foot_quat
-        )
+        self.Hip_flex = self.joint_angles.calculate_Hip_Flex(pelvis_quat, thigh_quat)
+        self.Knee_flex = self.joint_angles.calculate_Knee_Flex(thigh_quat, shank_quat)
+        self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(shank_quat, foot_quat)
 
         # Give haptic feedback (turn feedback nodes on/off)
         if self.config["feedback_enabled"]:
@@ -133,19 +131,17 @@ class Core(BaseApp):
         time_now = self.iteration / self.DATARATE  # time in seconds
 
         GB_pelvis_q = self.joint_angles.calculate_GB_quat(
-            self.pelvis_quat, self.joint_angles.BS_q_pelvis_inv
-            )
-
+            pelvis_quat, self.joint_angles.BS_q_pelvis_inv
+        )
         GB_thigh_q = self.joint_angles.calculate_GB_quat(
-            self.thigh_quat, self.joint_angles.BS_q_thigh_inv, self.joint_angles.thigh_Yawoffset_q
+            thigh_quat, self.joint_angles.BS_q_thigh_inv
         )
         GB_shank_q = self.joint_angles.calculate_GB_quat(
-            self.shank_quat, self.joint_angles.BS_q_shank_inv, self.joint_angles.shank_Yawoffset_q
-            )
+            shank_quat, self.joint_angles.BS_q_shank_inv
+        )
         GB_foot_q = self.joint_angles.calculate_GB_quat(
-            self.foot_quat, self.joint_angles.BS_q_foot_inv, self.joint_angles.foot_Yawoffset_q
-            )
-        
+            foot_quat, self.joint_angles.BS_q_foot_inv
+        )
 
         foot_euler = IntrinsicZYXEuler(GB_foot_q)
         pelvis_euler = IntrinsicZYXEuler(GB_pelvis_q)
@@ -175,7 +171,6 @@ class Core(BaseApp):
             "shank_yaw": [shank_euler.yaw],
             "shank_roll": [shank_euler.roll],
             "shank_pitch": [shank_euler.pitch],
-            
         }
 
         self.my_sage.save_data(data, my_data)

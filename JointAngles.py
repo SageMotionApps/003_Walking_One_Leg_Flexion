@@ -18,14 +18,6 @@ class IntrinsicZYXEuler:
         return f"IntrinsicZYXEuler(Yaw = {self.yaw}, Pitch = {self.pitch}, Roll = {self.roll})"
 
 
-def make_yaw_offset(offset_angle):
-    return R.from_euler(
-        seq="ZYX",
-        angles=[-offset_angle, 0, 0],
-        degrees=True,
-    )
-
-
 class JointAngles:
     def __init__(self, isRightLeg=True):
         """
@@ -34,9 +26,6 @@ class JointAngles:
         Args:
             isRightLeg (bool): Indicates whether the leg is the right leg or not.
         """
-        self.thigh_Yawoffset_q = None
-        self.shank_Yawoffset_q = None
-        self.foot_Yawoffset_q = None
 
         # sensor to segment alignment quaternion, inv denotes conjugate.
         self.BS_q_pelvis_inv = None
@@ -57,24 +46,6 @@ class JointAngles:
             thigh_quat (Rotation): Rotation representing the thigh orientation.
             shank_quat (Rotation): Rotation representing the shank orientation.
         """
-
-        pelvis_yaw = IntrinsicZYXEuler(pelvis_quat).yaw
-        thigh_yaw = IntrinsicZYXEuler(thigh_quat).yaw
-        shank_yaw = IntrinsicZYXEuler(shank_quat).yaw
-        foot_yaw = IntrinsicZYXEuler(foot_quat).yaw
-
-        # This code below calculates how much the yaw differs between the
-        # various segments and the pelvis. This is used to correct for yaw
-        # differences between the segment and the pelvis.
-
-        thigh_offset_angle = thigh_yaw - self.yaw_offset - pelvis_yaw
-        self.thigh_Yawoffset_q = make_yaw_offset(thigh_offset_angle)
-
-        shank_offset_angle = shank_yaw - self.yaw_offset - pelvis_yaw
-        self.shank_Yawoffset_q = make_yaw_offset(shank_offset_angle)
-
-        foot_offset_angle = foot_yaw - pelvis_yaw
-        self.foot_Yawoffset_q = make_yaw_offset(foot_offset_angle)
 
         # Get body segment quaternions relative to the target.
         # Pelvis does not include the offset since it is the base.
@@ -109,23 +80,14 @@ class JointAngles:
         this_quat = this_quat.inv()
         return this_quat * GB_q0_target
 
-    def calculate_GB_quat(self, GS_quat, bs_inv_quat, Yawoffset_quat=None):
+    def calculate_GB_quat(self, GS_quat, bs_inv_quat):
         # This method calculates the quaternion relative to the body segment.
         GB_quat = GS_quat * bs_inv_quat
-        if Yawoffset_quat != None:
-            GB_quat = Yawoffset_quat * GB_quat
         return GB_quat
 
     def calculate_Hip_Flex(self, pelvis_quat, thigh_quat):
         GB_pelvis_q = self.calculate_GB_quat(pelvis_quat, self.BS_q_pelvis_inv)
-
-        GB_thigh_q = self.calculate_GB_quat(
-            thigh_quat, self.BS_q_thigh_inv, self.thigh_Yawoffset_q
-        )
-
-        # This code calculates the hip angles by getting the relative rotation between
-        # the pelvis and the thigh. Other segments are calculated in a similar way.
-        B_q_hip_angles = GB_pelvis_q.inv() * GB_thigh_q
+        GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
 
         pelvis_angles = IntrinsicZYXEuler(GB_pelvis_q)
         thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
@@ -134,13 +96,8 @@ class JointAngles:
         return Hip_flex
 
     def calculate_Knee_Flex(self, thigh_quat, shank_quat):
-        GB_thigh_q = self.calculate_GB_quat(
-            thigh_quat, self.BS_q_thigh_inv, self.thigh_Yawoffset_q
-        )
-
-        GB_shank_q = self.calculate_GB_quat(
-            shank_quat, self.BS_q_shank_inv, self.shank_Yawoffset_q
-        )
+        GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
+        GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
 
         thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
         shank_angles = IntrinsicZYXEuler(GB_shank_q)
@@ -148,19 +105,12 @@ class JointAngles:
         Knee_flex = (Knee_flex + 180) % 360 - 180
         return Knee_flex
 
-
     def calculate_Ankle_Flex(self, shank_quat, foot_quat):
-        GB_shank_q = self.calculate_GB_quat(
-            shank_quat, self.BS_q_shank_inv, self.shank_Yawoffset_q
-        )
-
-        GB_foot_q = self.calculate_GB_quat(
-            foot_quat, self.BS_q_foot_inv, self.foot_Yawoffset_q
-        )
+        GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
+        GB_foot_q = self.calculate_GB_quat(foot_quat, self.BS_q_foot_inv)
 
         shank_angles = IntrinsicZYXEuler(GB_shank_q)
         foot_angles = IntrinsicZYXEuler(GB_foot_q)
         Ankle_flex = -(shank_angles.roll - foot_angles.roll)
         Ankle_flex = (Ankle_flex + 180) % 360 - 180
         return Ankle_flex
-
