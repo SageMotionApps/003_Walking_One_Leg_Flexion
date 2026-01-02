@@ -71,6 +71,8 @@ class JointAngles:
 
         print("Hip, knee and ankle all angles Calibrate finished")
 
+    @staticmethod
+    def calculate_GB_quat(GS_quat, bs_inv_quat):
         # This method calculates the quaternion relative to the body segment.
         GB_quat = GS_quat * bs_inv_quat
         return GB_quat
