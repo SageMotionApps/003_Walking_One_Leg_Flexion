@@ -47,40 +47,30 @@ class JointAngles:
             shank_quat (Rotation): Rotation representing the shank orientation.
         """
 
+        def initialize_quat_inv(this_quat, include_offset):
+            R_this_init_Yaw = IntrinsicZYXEuler(this_quat).yaw
+            if include_offset:
+                R_this_init_Yaw = R_this_init_Yaw + self.yaw_offset
+
+            R_this_init_Yaw = (R_this_init_Yaw + 180) % 360 - 180
+
+            GB_q0_target = R.from_euler(
+                seq="ZYX", angles=[R_this_init_Yaw, 0, 0], degrees=True
+            )
+
+            this_quat = this_quat.inv()
+            return this_quat * GB_q0_target
+
         # Get body segment quaternions relative to the target.
         # Pelvis does not include the offset since it is the base.
         # We dont include the offset for the foot since it does not rotate.
-        self.BS_q_pelvis_inv = self.initialize_quat_inv(pelvis_quat, False)
-        self.BS_q_thigh_inv = self.initialize_quat_inv(thigh_quat, True)
-        self.BS_q_shank_inv = self.initialize_quat_inv(shank_quat, True)
-        self.BS_q_foot_inv = self.initialize_quat_inv(foot_quat, False)
+        self.BS_q_pelvis_inv = initialize_quat_inv(pelvis_quat, include_offset=False)
+        self.BS_q_thigh_inv = initialize_quat_inv(thigh_quat, include_offset=True)
+        self.BS_q_shank_inv = initialize_quat_inv(shank_quat, include_offset=True)
+        self.BS_q_foot_inv = initialize_quat_inv(foot_quat, include_offset=False)
 
         print("Hip, knee and ankle all angles Calibrate finished")
 
-    def initialize_quat_inv(self, this_quat, include_offset):
-        """
-        Initializes the conjugate quaternion for sensor to segment alignment.
-
-        Args:
-            this_quat (Rotation): Rotation representing the sensor orientation.
-
-        Returns:
-            Rotation: Conjugate Rotation representing the alignment target.
-        """
-        R_this_init_Yaw = IntrinsicZYXEuler(this_quat).yaw
-        if include_offset:
-            R_this_init_Yaw = R_this_init_Yaw + self.yaw_offset
-
-        R_this_init_Yaw = (R_this_init_Yaw + 180) % 360 - 180
-
-        GB_q0_target = R.from_euler(
-            seq="ZYX", angles=[R_this_init_Yaw, 0, 0], degrees=True
-        )
-
-        this_quat = this_quat.inv()
-        return this_quat * GB_q0_target
-
-    def calculate_GB_quat(self, GS_quat, bs_inv_quat):
         # This method calculates the quaternion relative to the body segment.
         GB_quat = GS_quat * bs_inv_quat
         return GB_quat
