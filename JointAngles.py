@@ -1,10 +1,13 @@
 from .Rotation import Rotation as R
+import numpy as np
 
 # Intrinsic ZYX euler angles are yaw pitch roll
 # https://en.wikipedia.org/wiki/Euler_angles#Conventions
 # Intrinsic euler angles are defined using capital letters in scipy
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.as_euler.html#
 
+# Segment frame convention: x+ right, y+ up, z+ posterior
+FLEXION_AXIS_PARENT = np.array([1.0, 0.0, 0.0], dtype=float)  # +X
 
 class IntrinsicZYXEuler:
     def __init__(self, rot):
@@ -33,8 +36,6 @@ class JointAngles:
         self.BS_q_shank_inv = None
         self.BS_q_foot_inv = None
 
-        # The yaw offset depends on the leg. The Right leg's yaw is rotated the other way.
-        self.yaw_offset = -90 if isRightLeg else 90
 
     def calibrate(self, foot_quat, pelvis_quat, thigh_quat, shank_quat):
         """
@@ -47,27 +48,20 @@ class JointAngles:
             shank_quat (Rotation): Rotation representing the shank orientation.
         """
 
-        def initialize_quat_inv(this_quat, include_offset):
-            R_this_init_Yaw = IntrinsicZYXEuler(this_quat).yaw
-            if include_offset:
-                R_this_init_Yaw = R_this_init_Yaw + self.yaw_offset
+        # Define the calibration reference by the pelvis facing direction.
+        # Pelvis IMU axes: y up, z posterior (matches segment axes), so we use pelvis_quat as target.
+        GB_q0_target = pelvis_quat
 
-            R_this_init_Yaw = (R_this_init_Yaw + 180) % 360 - 180
+        def initialize_quat_inv(this_quat):
+            # Full 3D sensor->segment mapping at the calibration pose:
+            # R_S->B = (R_G->S)^-1 * (R_G->B)
+            # Here, R_G->B is defined by the pelvis orientation in the calibration pose.
+            return this_quat.inv() * GB_q0_target
 
-            GB_q0_target = R.from_euler(
-                seq="ZYX", angles=[R_this_init_Yaw, 0, 0], degrees=True
-            )
-
-            this_quat = this_quat.inv()
-            return this_quat * GB_q0_target
-
-        # Get body segment quaternions relative to the target.
-        # Pelvis does not include the offset since it is the base.
-        # We dont include the offset for the foot since it does not rotate.
-        self.BS_q_pelvis_inv = initialize_quat_inv(pelvis_quat, include_offset=False)
-        self.BS_q_thigh_inv = initialize_quat_inv(thigh_quat, include_offset=True)
-        self.BS_q_shank_inv = initialize_quat_inv(shank_quat, include_offset=True)
-        self.BS_q_foot_inv = initialize_quat_inv(foot_quat, include_offset=False)
+        self.BS_q_pelvis_inv = initialize_quat_inv(pelvis_quat)
+        self.BS_q_thigh_inv = initialize_quat_inv(thigh_quat)
+        self.BS_q_shank_inv = initialize_quat_inv(shank_quat)
+        self.BS_q_foot_inv = initialize_quat_inv(foot_quat)
 
         print("Hip, knee and ankle all angles Calibrate finished")
 
@@ -77,32 +71,65 @@ class JointAngles:
         GB_quat = GS_quat * bs_inv_quat
         return GB_quat
 
+    @staticmethod
+    def _wrap_deg(angle_deg: float) -> float:
+        return (angle_deg + 180) % 360 - 180
+
+    @staticmethod
+    def _twist_angle_about_axis(q_rel, axis_parent_xyz: np.ndarray) -> float:
+        """
+        Return signed twist angle (degrees) of q_rel about axis expressed in the PARENT frame.
+
+        q_rel should be: q_parent.inv() * q_child  (child w.r.t parent, expressed in parent frame)
+        axis_parent_xyz is the twist axis in parent coordinates (unit vector).
+        """
+        a = np.asarray(axis_parent_xyz, dtype=float)
+        n = np.linalg.norm(a)
+        if n == 0:
+            raise ValueError("axis_parent_xyz must be non-zero")
+        a = a / n
+
+        # SciPy Rotation.as_quat() convention: [x, y, z, w]
+        q = q_rel.as_quat()
+        v = q[:3]
+        w = q[3]
+
+        # Project vector part onto axis to isolate twist
+        v_par = a * float(np.dot(v, a))
+
+        twist = np.array([v_par[0], v_par[1], v_par[2], w], dtype=float)
+        twist_norm = np.linalg.norm(twist)
+        if twist_norm < 1e-12:
+            return 0.0
+        twist /= twist_norm
+
+        v_t = twist[:3]
+        w_t = twist[3]
+
+        # Signed angle from signed sin(half-angle) along axis
+        s = float(np.dot(v_t, a))
+        angle_rad = 2.0 * np.arctan2(abs(s), w_t)
+        angle_deg = np.degrees(angle_rad)
+        if s < 0:
+            angle_deg = -angle_deg
+
+        return (angle_deg + 180.0) % 360.0 - 180.0
+
     def calculate_Hip_Flex(self, pelvis_quat, thigh_quat):
         GB_pelvis_q = self.calculate_GB_quat(pelvis_quat, self.BS_q_pelvis_inv)
         GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
+        q_rel = GB_pelvis_q.inv() * GB_thigh_q
+        return self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
 
-        pelvis_angles = IntrinsicZYXEuler(GB_pelvis_q)
-        thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
-        Hip_flex = pelvis_angles.roll - thigh_angles.roll
-        Hip_flex = (Hip_flex + 180) % 360 - 180
-        return Hip_flex
 
     def calculate_Knee_Flex(self, thigh_quat, shank_quat):
         GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
         GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
-
-        thigh_angles = IntrinsicZYXEuler(GB_thigh_q)
-        shank_angles = IntrinsicZYXEuler(GB_shank_q)
-        Knee_flex = -(thigh_angles.roll - shank_angles.roll)
-        Knee_flex = (Knee_flex + 180) % 360 - 180
-        return Knee_flex
+        q_rel = GB_thigh_q.inv() * GB_shank_q
+        return -self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
 
     def calculate_Ankle_Flex(self, shank_quat, foot_quat):
         GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
         GB_foot_q = self.calculate_GB_quat(foot_quat, self.BS_q_foot_inv)
-
-        shank_angles = IntrinsicZYXEuler(GB_shank_q)
-        foot_angles = IntrinsicZYXEuler(GB_foot_q)
-        Ankle_flex = -(shank_angles.roll - foot_angles.roll)
-        Ankle_flex = (Ankle_flex + 180) % 360 - 180
-        return Ankle_flex
+        q_rel = GB_shank_q.inv() * GB_foot_q
+        return self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
