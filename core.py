@@ -48,7 +48,7 @@ class Core(BaseApp):
         self.joint_angles = JointAngles(right_leg)
         self.gait_phase = GaitPhase(self.DATARATE)
         self.yaw_correction = None
-        self.yaw_offsets = [0, -90, -90, 0] if right_leg else [0, 90, 90, 0]
+        self.yaw_offsets = [0, 90, 90, 0] if right_leg else [0, -90, -90, 0]
 
         self.min_feedback_state = 0
         self.max_feedback_state = 0
