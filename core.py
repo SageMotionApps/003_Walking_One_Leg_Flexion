@@ -1,11 +1,9 @@
-import time
-import numpy as np
 from sage.base_app import BaseApp
 
 
 from .gaitphase import GaitPhase
 from .Rotation import Rotation as R
-from .JointAngles import JointAngles, IntrinsicZYXEuler
+from .JointAngles import JointAngles
 from .YawCorrection import YawCorrection
 
 
@@ -45,7 +43,7 @@ class Core(BaseApp):
 
         right_leg = self.config["which_leg"] == "Right Leg"
         self.iteration = 0
-        self.joint_angles = JointAngles(right_leg)
+        self.joint_angles = JointAngles()
         self.gait_phase = GaitPhase(self.DATARATE)
         self.yaw_correction = None
         self.yaw_offsets = [0, 90, 90, 0] if right_leg else [0, -90, -90, 0]
@@ -130,24 +128,6 @@ class Core(BaseApp):
 
         time_now = self.iteration / self.DATARATE  # time in seconds
 
-        GB_pelvis_q = self.joint_angles.calculate_GB_quat(
-            pelvis_quat, self.joint_angles.BS_q_pelvis_inv
-        )
-        GB_thigh_q = self.joint_angles.calculate_GB_quat(
-            thigh_quat, self.joint_angles.BS_q_thigh_inv
-        )
-        GB_shank_q = self.joint_angles.calculate_GB_quat(
-            shank_quat, self.joint_angles.BS_q_shank_inv
-        )
-        GB_foot_q = self.joint_angles.calculate_GB_quat(
-            foot_quat, self.joint_angles.BS_q_foot_inv
-        )
-
-        foot_euler = IntrinsicZYXEuler(GB_foot_q)
-        pelvis_euler = IntrinsicZYXEuler(GB_pelvis_q)
-        thigh_euler = IntrinsicZYXEuler(GB_thigh_q)
-        shank_euler = IntrinsicZYXEuler(GB_shank_q)
-
         my_data = {
             "time": [time_now],
             "Gait_Phase": [self.gait_phase.gaitphase.value],
@@ -158,19 +138,7 @@ class Core(BaseApp):
             "max_feedback_state": [self.max_feedback_state],
             "Hip_flex": [self.Hip_flex],
             "Knee_flex": [self.Knee_flex],
-            "Ankle_flex": [self.Ankle_flex],
-            "foot_yaw": [foot_euler.yaw],
-            "foot_roll": [foot_euler.roll],
-            "foot_pitch": [foot_euler.pitch],
-            "pelvis_yaw": [pelvis_euler.yaw],
-            "pelvis_roll": [pelvis_euler.roll],
-            "pelvis_pitch": [pelvis_euler.pitch],
-            "thigh_yaw": [thigh_euler.yaw],
-            "thigh_roll": [thigh_euler.roll],
-            "thigh_pitch": [thigh_euler.pitch],
-            "shank_yaw": [shank_euler.yaw],
-            "shank_roll": [shank_euler.roll],
-            "shank_pitch": [shank_euler.pitch],
+            "Ankle_flex": [self.Ankle_flex]
         }
 
         self.my_sage.save_data(data, my_data)

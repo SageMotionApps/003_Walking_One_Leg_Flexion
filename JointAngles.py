@@ -1,35 +1,104 @@
 from .Rotation import Rotation as R
 import numpy as np
 
-# Intrinsic ZYX euler angles are yaw pitch roll
-# https://en.wikipedia.org/wiki/Euler_angles#Conventions
-# Intrinsic euler angles are defined using capital letters in scipy
-# https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.as_euler.html#
 
 # Segment frame convention: x+ right, y+ up, z+ posterior
 FLEXION_AXIS_PARENT = np.array([1.0, 0.0, 0.0], dtype=float)  # +X
 
-class IntrinsicZYXEuler:
-    def __init__(self, rot):
-        euler = rot.as_euler("ZYX", degrees=True)
-        self.yaw, self.pitch, self.roll = euler[0] if not rot.single else euler
+def wrap_deg(angle_deg: float) -> float:
+    return (angle_deg + 180) % 360 - 180
 
-    def __str__(self):
-        return f"Yaw = {self.yaw}, Pitch = {self.pitch}, Roll = {self.roll}"
+def get_swing_twist_decomposition(q: R, v: np.ndarray) -> (R, R):
+    """
+    Decompose rotation q into swing and twist, e.g. elbow flexion and pronation, about the reference axis v (in the same frame).
 
-    def __repr__(self):
-        return f"IntrinsicZYXEuler(Yaw = {self.yaw}, Pitch = {self.pitch}, Roll = {self.roll})"
+    Returns (qs, qt) such that:
+        q = qs * qt
+    where:
+        - qs (swing) rotates v to w = q.apply(v) without twisting about v
+        - qt (twist) is a pure rotation about axis v
+
+    Notes:
+        - v must be non-zero; it will be normalized internally.
+        - Axis v, the twist axis, is orthogonal to the swing axis.
+        - Source: https://arxiv.org/pdf/1506.05481
+    """
+    v = np.asarray(v, dtype=float)
+    v_norm = np.linalg.norm(v)
+    if v_norm == 0.0:
+        raise ValueError("v must be non-zero")
+    v = v / v_norm
+
+    # Rotate reference axis by q (active rotation)
+    w = q.apply(v)
+
+    # Compute swing axis n (perpendicular to both v and w)
+    n = np.cross(v, w)
+    n_norm = np.linalg.norm(n)
+
+    # Robust angle between v and w:
+    # sin(alpha) = ||v×w|| / ||v|| ||w||
+    # cos(alpha) = v·w / ||v|| ||w||
+    # tan(alpha) = sin(alpha) / cos(alpha)
+    # tan(alpha) = ||v×w|| / v·w
+    # alpha = atan2(||v×w||, v·w)
+    d = float(np.dot(v, w))
+    d = max(-1.0, min(1.0, d))
+    alpha = float(np.arctan2(n_norm, d))
+
+    if n_norm < 1e-12:
+        # v and w are parallel or anti-parallel (sign flip parallel): swing is either identity (alpha~0)
+        # or a 180° rotation about any axis orthogonal to v (alpha~pi).
+        if d > 0.0:
+            qs = R.identity()
+        else:
+            # Choose a stable axis orthogonal to v
+            # ortho · v = 0 => ortho is orthogonal to v
+
+            # pick the smallest component to avoid near-parallel
+            if abs(v[0]) < abs(v[1]) and abs(v[0]) < abs(v[2]):
+                ortho = np.array([0.0, -v[2], v[1]])
+                # [0, -v2, v1] · [v0, v1, v2] = 0 => ortho is orthogonal to v
+            elif abs(v[1]) < abs(v[2]):
+                ortho = np.array([-v[2], 0.0, v[0]])
+                # [-v2, 0, v0] · [v0, v1, v2] = 0 => ortho is orthogonal to v
+            else:
+                ortho = np.array([-v[1], v[0], 0.0])
+                # [-v1, v0, 0] · [v0, v1, v2] = 0 => ortho is orthogonal to v
+            ortho /= np.linalg.norm(ortho)
+            qs = R.from_rotvec(ortho * np.pi)
+    else:
+        n = n / n_norm
+        qs = R.from_rotvec(n * alpha)
+
+    # Twist-after-swing: q = qs * qt  =>  qt = qs^{-1} * q
+    qt = qs.inv() * q
+    return qs, qt
+
+def signed_twist_angle_deg(qt: R, v: np.ndarray) -> float:
+    """
+    Signed twist angle (degrees) about axis v.
+    qt must be a pure twist about v.
+    """
+    v = np.asarray(v, dtype=float)
+    v /= np.linalg.norm(v)
+
+    rotvec = qt.as_rotvec()  
+    angle_rad = np.linalg.norm(rotvec)
+    if angle_rad < 1e-12:
+        return 0.0
+
+    axis = rotvec / angle_rad
+    sign = np.sign(np.dot(axis, v))
+    return np.degrees(angle_rad) * sign
 
 
 class JointAngles:
-    def __init__(self, isRightLeg=True):
+    def __init__(self):
         """
         Initializes the JointAngles class.
 
-        Args:
-            isRightLeg (bool): Indicates whether the leg is the right leg or not.
         """
-
         # sensor to segment alignment quaternion, inv denotes conjugate.
         self.BS_q_pelvis_inv = None
         self.BS_q_thigh_inv = None
@@ -52,84 +121,31 @@ class JointAngles:
         # Pelvis IMU axes: y up, z posterior (matches segment axes), so we use pelvis_quat as target.
         GB_q0_target = pelvis_quat
 
-        def initialize_quat_inv(this_quat):
-            # Full 3D sensor->segment mapping at the calibration pose:
-            # R_S->B = (R_G->S)^-1 * (R_G->B)
-            # Here, R_G->B is defined by the pelvis orientation in the calibration pose.
-            return this_quat.inv() * GB_q0_target
-
-        self.BS_q_pelvis_inv = initialize_quat_inv(pelvis_quat)
-        self.BS_q_thigh_inv = initialize_quat_inv(thigh_quat)
-        self.BS_q_shank_inv = initialize_quat_inv(shank_quat)
-        self.BS_q_foot_inv = initialize_quat_inv(foot_quat)
+        self.BS_q_pelvis_inv = pelvis_quat.inv() * GB_q0_target
+        self.BS_q_thigh_inv = thigh_quat.inv() * GB_q0_target
+        self.BS_q_shank_inv = shank_quat.inv() * GB_q0_target
+        self.BS_q_foot_inv = foot_quat.inv() * GB_q0_target
 
         print("Hip, knee and ankle all angles Calibrate finished")
 
-    @staticmethod
-    def calculate_GB_quat(GS_quat, bs_inv_quat):
-        # This method calculates the quaternion relative to the body segment.
-        GB_quat = GS_quat * bs_inv_quat
-        return GB_quat
-
-    @staticmethod
-    def _wrap_deg(angle_deg: float) -> float:
-        return (angle_deg + 180) % 360 - 180
-
-    @staticmethod
-    def _twist_angle_about_axis(q_rel, axis_parent_xyz: np.ndarray) -> float:
-        """
-        Return signed twist angle (degrees) of q_rel about axis expressed in the PARENT frame.
-
-        q_rel should be: q_parent.inv() * q_child  (child w.r.t parent, expressed in parent frame)
-        axis_parent_xyz is the twist axis in parent coordinates (unit vector).
-        """
-        a = np.asarray(axis_parent_xyz, dtype=float)
-        n = np.linalg.norm(a)
-        if n == 0:
-            raise ValueError("axis_parent_xyz must be non-zero")
-        a = a / n
-
-        # SciPy Rotation.as_quat() convention: [x, y, z, w]
-        q = q_rel.as_quat()
-        v = q[:3]
-        w = q[3]
-
-        # Project vector part onto axis to isolate twist
-        v_par = a * float(np.dot(v, a))
-
-        twist = np.array([v_par[0], v_par[1], v_par[2], w], dtype=float)
-        twist_norm = np.linalg.norm(twist)
-        if twist_norm < 1e-12:
-            return 0.0
-        twist /= twist_norm
-
-        v_t = twist[:3]
-        w_t = twist[3]
-
-        # Signed angle from signed sin(half-angle) along axis
-        s = float(np.dot(v_t, a))
-        angle_rad = 2.0 * np.arctan2(abs(s), w_t)
-        angle_deg = np.degrees(angle_rad)
-        if s < 0:
-            angle_deg = -angle_deg
-
-        return (angle_deg + 180.0) % 360.0 - 180.0
 
     def calculate_Hip_Flex(self, pelvis_quat, thigh_quat):
-        GB_pelvis_q = self.calculate_GB_quat(pelvis_quat, self.BS_q_pelvis_inv)
-        GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
+        GB_pelvis_q = pelvis_quat * self.BS_q_pelvis_inv
+        GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
         q_rel = GB_pelvis_q.inv() * GB_thigh_q
-        return self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
-
+        _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
+        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)   
 
     def calculate_Knee_Flex(self, thigh_quat, shank_quat):
-        GB_thigh_q = self.calculate_GB_quat(thigh_quat, self.BS_q_thigh_inv)
-        GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
+        GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
+        GB_shank_q = shank_quat * self.BS_q_shank_inv
         q_rel = GB_thigh_q.inv() * GB_shank_q
-        return -self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
+        _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
+        return signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
 
     def calculate_Ankle_Flex(self, shank_quat, foot_quat):
-        GB_shank_q = self.calculate_GB_quat(shank_quat, self.BS_q_shank_inv)
-        GB_foot_q = self.calculate_GB_quat(foot_quat, self.BS_q_foot_inv)
+        GB_shank_q = shank_quat * self.BS_q_shank_inv
+        GB_foot_q = foot_quat * self.BS_q_foot_inv
         q_rel = GB_shank_q.inv() * GB_foot_q
-        return self._twist_angle_about_axis(q_rel, self.FLEXION_AXIS_PARENT)
+        _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
+        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
