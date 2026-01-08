@@ -141,8 +141,8 @@ class Core(BaseApp):
             "Ankle_flex": [self.Ankle_flex]
         }
 
-        self.my_sage.save_data(data, my_data)
-        self.my_sage.send_stream_data(data, my_data)
+        self.my_sage.save_data(YC_data, my_data)
+        self.my_sage.send_stream_data(YC_data, my_data)
 
         self.iteration += 1
         return True
