@@ -2,8 +2,8 @@ from .Rotation import Rotation as R
 import numpy as np
 
 
-# Segment frame convention: x+ right, y+ up, z+ posterior
-FLEXION_AXIS_PARENT = np.array([1.0, 0.0, 0.0], dtype=float)  # +X
+# Segment frame convention: x- right, y+ up, z- posterior
+FLEXION_AXIS_PARENT = np.array([-1.0, 0.0, 0.0], dtype=float)  # -X
 
 def wrap_deg(angle_deg: float) -> float:
     return (angle_deg + 180) % 360 - 180
@@ -134,18 +134,18 @@ class JointAngles:
         GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
         q_rel = GB_pelvis_q.inv() * GB_thigh_q
         _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
-        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)   
+        return signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)   
 
     def calculate_Knee_Flex(self, thigh_quat, shank_quat):
         GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
         GB_shank_q = shank_quat * self.BS_q_shank_inv
         q_rel = GB_thigh_q.inv() * GB_shank_q
         _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
-        return signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
+        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
 
     def calculate_Ankle_Flex(self, shank_quat, foot_quat):
         GB_shank_q = shank_quat * self.BS_q_shank_inv
         GB_foot_q = foot_quat * self.BS_q_foot_inv
         q_rel = GB_shank_q.inv() * GB_foot_q
         _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
-        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
+        return signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
