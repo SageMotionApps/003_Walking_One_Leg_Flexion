@@ -1,5 +1,6 @@
 from sage.base_app import BaseApp
 
+import numpy as np
 
 from .gaitphase import GaitPhase
 from .Rotation import Rotation as R
@@ -50,6 +51,42 @@ class Core(BaseApp):
 
         self.min_feedback_state = 0
         self.max_feedback_state = 0
+
+        self.calibration_duration_s = 2.0
+        self.calibration_samples = max(
+            1, int(round(self.calibration_duration_s * self.DATARATE))
+        )
+        self.calibration_buffer = {
+            "foot": [],
+            "pelvis": [],
+            "thigh": [],
+            "shank": [],
+        }
+        self.calibrated = False
+
+    def _append_calibration_sample(
+        self, foot_quat: R, pelvis_quat: R, thigh_quat: R, shank_quat: R
+    ) -> None:
+        self.calibration_buffer["foot"].append(foot_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["pelvis"].append(pelvis_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["thigh"].append(thigh_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["shank"].append(shank_quat.as_quat(scalar_first=True))
+
+    def _mean_quat(self, quat_samples: list[np.ndarray]) -> R:
+        if not quat_samples:
+            raise ValueError("quat_samples must not be empty")
+        q0 = np.array(quat_samples[0], dtype=float)
+        A = np.zeros((4, 4), dtype=float)
+        for q in quat_samples:
+            q = np.array(q, dtype=float)
+            if np.dot(q0, q) < 0.0:
+                q = -q
+            A += np.outer(q, q)
+        _, eigvecs = np.linalg.eigh(A)
+        q_avg = eigvecs[:, -1]
+        if np.dot(q_avg, q0) < 0.0:
+            q_avg = -q_avg
+        return R.from_quat(q_avg, scalar_first=True)
 
     ###########################################################
     # CHECK NODE CONNECTIONS
@@ -108,19 +145,41 @@ class Core(BaseApp):
         thigh_quat = get_rotation(YC_data, self.NodeNum_thigh)
         shank_quat = get_rotation(YC_data, self.NodeNum_shank)
 
-        # Perform joint angle calibration
-        if self.iteration == 0:
-            self.joint_angles.calibrate(foot_quat, pelvis_quat, thigh_quat, shank_quat)
+        # Perform joint angle calibration (time-averaged over a short static window)
+        if not self.calibrated:
+            self._append_calibration_sample(
+                foot_quat, pelvis_quat, thigh_quat, shank_quat
+            )
+            if len(self.calibration_buffer["pelvis"]) >= self.calibration_samples:
+                foot_avg = self._mean_quat(self.calibration_buffer["foot"])
+                pelvis_avg = self._mean_quat(self.calibration_buffer["pelvis"])
+                thigh_avg = self._mean_quat(self.calibration_buffer["thigh"])
+                shank_avg = self._mean_quat(self.calibration_buffer["shank"])
+                self.joint_angles.calibrate(
+                    foot_avg, pelvis_avg, thigh_avg, shank_avg
+                )
+                self.calibrated = True
         # Update gait phases
         self.gait_phase.update_gaitphase(data[self.NodeNum_foot])
 
         # Calculate Extension angles
-        self.Hip_flex = self.joint_angles.calculate_Hip_Flex(pelvis_quat, thigh_quat)
-        self.Knee_flex = self.joint_angles.calculate_Knee_Flex(thigh_quat, shank_quat)
-        self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(shank_quat, foot_quat)
+        if self.calibrated:
+            self.Hip_flex = self.joint_angles.calculate_Hip_Flex(
+                pelvis_quat, thigh_quat
+            )
+            self.Knee_flex = self.joint_angles.calculate_Knee_Flex(
+                thigh_quat, shank_quat
+            )
+            self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(
+                shank_quat, foot_quat
+            )
+        else:
+            self.Hip_flex = 0.0
+            self.Knee_flex = 0.0
+            self.Ankle_flex = 0.0
 
         # Give haptic feedback (turn feedback nodes on/off)
-        if self.config["feedback_enabled"]:
+        if self.config["feedback_enabled"] and self.calibrated:
             self.give_feedback()
         else:
             self.min_feedback_state = 0
