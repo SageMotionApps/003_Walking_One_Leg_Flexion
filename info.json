@@ -106,12 +106,27 @@
       "size": 1
     },
     {
+      "name": "Hip_add",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Hip_rot",
+      "data_type": "float",
+      "size": 1
+    },
+    {
       "name": "Knee_flex",
       "data_type": "float",
       "size": 1
     },
     {
       "name": "Ankle_flex",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Ankle_inv",
       "data_type": "float",
       "size": 1
     },

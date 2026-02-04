@@ -45,6 +45,7 @@ class Core(BaseApp):
         right_leg = self.config["which_leg"] == "Right Leg"
         self.iteration = 0
         self.joint_angles = JointAngles()
+        self.joint_angles.set_leg_is_right(right_leg)
         self.gait_phase = GaitPhase(self.DATARATE)
         self.yaw_correction = None
         self.yaw_offsets = [0, 90, 90, 0] if right_leg else [0, -90, -90, 0]
@@ -167,16 +168,28 @@ class Core(BaseApp):
             self.Hip_flex = self.joint_angles.calculate_Hip_Flex(
                 pelvis_quat, thigh_quat
             )
+            self.Hip_add = self.joint_angles.calculate_Hip_Adduction(
+                pelvis_quat, thigh_quat
+            )
+            self.Hip_rot = self.joint_angles.calculate_Hip_Internal_Rotation(
+                pelvis_quat, thigh_quat
+            )
             self.Knee_flex = self.joint_angles.calculate_Knee_Flex(
                 thigh_quat, shank_quat
             )
             self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(
                 shank_quat, foot_quat
             )
+            self.Ankle_inv = self.joint_angles.calculate_Ankle_Inversion(
+                shank_quat, foot_quat
+            )
         else:
             self.Hip_flex = 0.0
+            self.Hip_add = 0.0
+            self.Hip_rot = 0.0
             self.Knee_flex = 0.0
             self.Ankle_flex = 0.0
+            self.Ankle_inv = 0.0
 
         # Give haptic feedback (turn feedback nodes on/off)
         if self.config["feedback_enabled"] and self.calibrated:
@@ -196,8 +209,11 @@ class Core(BaseApp):
             "min_feedback_state": [self.min_feedback_state],
             "max_feedback_state": [self.max_feedback_state],
             "Hip_flex": [self.Hip_flex],
+            "Hip_add": [self.Hip_add],
+            "Hip_rot": [self.Hip_rot],
             "Knee_flex": [self.Knee_flex],
-            "Ankle_flex": [self.Ankle_flex]
+            "Ankle_flex": [self.Ankle_flex],
+            "Ankle_inv": [self.Ankle_inv]
         }
 
         self.my_sage.save_data(YC_data, my_data)
