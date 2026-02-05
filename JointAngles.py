@@ -4,6 +4,7 @@ import numpy as np
 
 # Segment frame convention: x- right, y+ up, z- posterior
 FLEXION_AXIS_PARENT = np.array([-1.0, 0.0, 0.0], dtype=float)  # -X
+VERTICAL_AXIS = np.array([0.0, 0.0, 1.0], dtype=float)  # Z
 
 def wrap_deg(angle_deg: float) -> float:
     return (angle_deg + 180) % 360 - 180
@@ -99,20 +100,32 @@ def _unit(v: np.ndarray) -> np.ndarray:
         raise ValueError("zero-length vector")
     return v / n
 
+def _project_onto_plane(v: np.ndarray, normal: np.ndarray) -> np.ndarray:
+    """
+    Remove the component of v along normal. Returns a vector in the plane orthogonal to normal.
+    """
+    normal = _unit(normal)
+    return v - normal * np.dot(normal, v)
+
+def _normalize_or_none(v: np.ndarray) -> np.ndarray|None:
+    v = np.asarray(v, dtype=float)
+    n = np.linalg.norm(v)
+    if n < 1e-12:
+        return None
+    return v / n
+
 def signed_angle_about_axis(v_from: np.ndarray, v_to: np.ndarray, axis: np.ndarray) -> float:
     """
     Signed angle (degrees) from v_from to v_to about axis.
     Vectors are projected onto the plane orthogonal to axis.
     """
     axis = _unit(axis)
-    v1 = v_from - axis * np.dot(axis, v_from)
-    v2 = v_to - axis * np.dot(axis, v_to)
-    n1 = np.linalg.norm(v1)
-    n2 = np.linalg.norm(v2)
-    if n1 < 1e-12 or n2 < 1e-12:
+    v1 = _project_onto_plane(v_from, axis)
+    v2 = _project_onto_plane(v_to, axis)
+    n1 = _normalize_or_none(v1)
+    n2 = _normalize_or_none(v2)
+    if n1 is None or n2 is None:
         return 0.0
-    v1 /= n1
-    v2 /= n2
     angle = np.arctan2(np.dot(axis, np.cross(v1, v2)), np.dot(v1, v2))
     return np.degrees(angle)
 
@@ -186,38 +199,52 @@ class JointAngles:
         GB_foot_q = foot_quat * self.BS_q_foot_inv
         q_rel = GB_shank_q.inv() * GB_foot_q
         _, twist = get_swing_twist_decomposition(q_rel, FLEXION_AXIS_PARENT)
-        return signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
+        return -signed_twist_angle_deg(twist, FLEXION_AXIS_PARENT)
 
     def calculate_Ankle_Inversion(self, shank_quat, foot_quat):
         GB_shank_q = shank_quat * self.BS_q_shank_inv
         GB_foot_q = foot_quat * self.BS_q_foot_inv
 
-        parent_ml = GB_shank_q.apply(FLEXION_AXIS_PARENT)
-        child_long = GB_foot_q.apply(np.array([0.0, 1.0, 0.0], dtype=float))
+        e1 = _unit(GB_shank_q.apply(FLEXION_AXIS_PARENT))   # shank ML
+        shank_long = _unit(GB_shank_q.apply(VERTICAL_AXIS)) # shank long
+        foot_long = _unit(GB_foot_q.apply(VERTICAL_AXIS))   # foot long
 
-        dot_val = float(np.dot(_unit(parent_ml), _unit(child_long)))
-        dot_val = max(-1.0, min(1.0, dot_val))
-        medial_positive = self.hip_side_sign * np.degrees(np.arcsin(dot_val))
-        return -medial_positive
+        e2 = _normalize_or_none(np.cross(foot_long, e1))     # floating axis
+        if e2 is None:
+            return 0.0
+
+        angle = signed_angle_about_axis(shank_long, foot_long, e2)
+        return wrap_deg(-self.hip_side_sign * angle)
 
     def calculate_Hip_Adduction(self, pelvis_quat, thigh_quat):
         GB_pelvis_q = pelvis_quat * self.BS_q_pelvis_inv
         GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
 
-        parent_ml = GB_pelvis_q.apply(FLEXION_AXIS_PARENT)
-        child_long = GB_thigh_q.apply(np.array([0.0, 1.0, 0.0], dtype=float))
+        e1 = _unit(GB_pelvis_q.apply(FLEXION_AXIS_PARENT))   # pelvis ML (flex axis)
+        pelvis_long = _unit(GB_pelvis_q.apply(VERTICAL_AXIS))
+        thigh_long = _unit(GB_thigh_q.apply(VERTICAL_AXIS))
 
-        dot_val = float(np.dot(_unit(parent_ml), _unit(child_long)))
-        dot_val = max(-1.0, min(1.0, dot_val))
-        return self.hip_side_sign * np.degrees(np.arcsin(dot_val))
+        e2 = _normalize_or_none(np.cross(thigh_long, e1))    # floating axis
+        if e2 is None:
+            return 0.0
+
+        angle = signed_angle_about_axis(pelvis_long, thigh_long, e2)
+        return wrap_deg(self.hip_side_sign * angle)
 
     def calculate_Hip_Internal_Rotation(self, pelvis_quat, thigh_quat):
         GB_pelvis_q = pelvis_quat * self.BS_q_pelvis_inv
         GB_thigh_q = thigh_quat * self.BS_q_thigh_inv
 
-        parent_ml = GB_pelvis_q.apply(FLEXION_AXIS_PARENT)
-        child_long = GB_thigh_q.apply(np.array([0.0, 1.0, 0.0], dtype=float))
-        child_ml = GB_thigh_q.apply(FLEXION_AXIS_PARENT)
+        e1 = _unit(GB_pelvis_q.apply(FLEXION_AXIS_PARENT))   # pelvis ML
+        pelvis_long = _unit(GB_pelvis_q.apply(VERTICAL_AXIS))
+        thigh_long = _unit(GB_thigh_q.apply(VERTICAL_AXIS))
+        thigh_ml = _unit(GB_thigh_q.apply(FLEXION_AXIS_PARENT))
 
-        angle = signed_angle_about_axis(parent_ml, child_ml, child_long)
+        # Define AP axes from (long × ML). Direction may need a sign flip to match your conventions.
+        pelvis_ap = _normalize_or_none(np.cross(pelvis_long, e1))
+        thigh_ap = _normalize_or_none(np.cross(thigh_long, thigh_ml))
+        if pelvis_ap is None or thigh_ap is None:
+            return 0.0
+
+        angle = signed_angle_about_axis(pelvis_ap, thigh_ap, thigh_long)
         return wrap_deg(self.hip_side_sign * angle)
