@@ -83,10 +83,16 @@ class RotationScalarFirst(Rotation):
         return quat
 
     @classmethod
+    def from_euler(cls, seq, angles, degrees=False):
+        rotation = super().from_euler(seq, angles, degrees=degrees)
+        return rotation if isinstance(rotation, cls) else cls(rotation.as_quat())
+
+    @classmethod
     def from_quat(cls, quat, scalar_first=True):
         if not scalar_first:
             print(cls.error_message)
-        return super().from_quat(quat, scalar_first=scalar_first)
+        rotation = super().from_quat(quat, scalar_first=scalar_first)
+        return rotation if isinstance(rotation, cls) else cls(rotation.as_quat())
 
 
 # To use this class, you can `from .Rotation import Rotation as R`.
