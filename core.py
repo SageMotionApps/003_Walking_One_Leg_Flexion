@@ -1,11 +1,10 @@
-import time
-import numpy as np
 from sage.base_app import BaseApp
 
+import numpy as np
 
 from .gaitphase import GaitPhase
 from .Rotation import Rotation as R
-from .JointAngles import JointAngles, IntrinsicZYXEuler
+from .JointAngles import JointAngles
 from .YawCorrection import YawCorrection
 
 
@@ -45,13 +44,50 @@ class Core(BaseApp):
 
         right_leg = self.config["which_leg"] == "Right Leg"
         self.iteration = 0
-        self.joint_angles = JointAngles(right_leg)
+        self.joint_angles = JointAngles()
+        self.joint_angles.set_leg_is_right(right_leg)
         self.gait_phase = GaitPhase(self.DATARATE)
         self.yaw_correction = None
-        self.yaw_offsets = [0, -90, -90, 0] if right_leg else [0, 90, 90, 0]
+        self.yaw_offsets = [0, 90, 90, 0] if right_leg else [0, -90, -90, 0]
 
         self.min_feedback_state = 0
         self.max_feedback_state = 0
+
+        self.calibration_duration_s = 2.0
+        self.calibration_samples = max(
+            1, int(round(self.calibration_duration_s * self.DATARATE))
+        )
+        self.calibration_buffer = {
+            "foot": [],
+            "pelvis": [],
+            "thigh": [],
+            "shank": [],
+        }
+        self.calibrated = False
+
+    def _append_calibration_sample(
+        self, foot_quat: R, pelvis_quat: R, thigh_quat: R, shank_quat: R
+    ) -> None:
+        self.calibration_buffer["foot"].append(foot_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["pelvis"].append(pelvis_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["thigh"].append(thigh_quat.as_quat(scalar_first=True))
+        self.calibration_buffer["shank"].append(shank_quat.as_quat(scalar_first=True))
+
+    def _mean_quat(self, quat_samples: list[np.ndarray]) -> R:
+        if not quat_samples:
+            raise ValueError("quat_samples must not be empty")
+        q0 = np.array(quat_samples[0], dtype=float)
+        A = np.zeros((4, 4), dtype=float)
+        for q in quat_samples:
+            q = np.array(q, dtype=float)
+            if np.dot(q0, q) < 0.0:
+                q = -q
+            A += np.outer(q, q)
+        _, eigvecs = np.linalg.eigh(A)
+        q_avg = eigvecs[:, -1]
+        if np.dot(q_avg, q0) < 0.0:
+            q_avg = -q_avg
+        return R.from_quat(q_avg, scalar_first=True)
 
     ###########################################################
     # CHECK NODE CONNECTIONS
@@ -110,43 +146,59 @@ class Core(BaseApp):
         thigh_quat = get_rotation(YC_data, self.NodeNum_thigh)
         shank_quat = get_rotation(YC_data, self.NodeNum_shank)
 
-        # Perform joint angle calibration
-        if self.iteration == 0:
-            self.joint_angles.calibrate(foot_quat, pelvis_quat, thigh_quat, shank_quat)
+        # Perform joint angle calibration (time-averaged over a short static window)
+        if not self.calibrated:
+            self._append_calibration_sample(
+                foot_quat, pelvis_quat, thigh_quat, shank_quat
+            )
+            if len(self.calibration_buffer["pelvis"]) >= self.calibration_samples:
+                foot_avg = self._mean_quat(self.calibration_buffer["foot"])
+                pelvis_avg = self._mean_quat(self.calibration_buffer["pelvis"])
+                thigh_avg = self._mean_quat(self.calibration_buffer["thigh"])
+                shank_avg = self._mean_quat(self.calibration_buffer["shank"])
+                self.joint_angles.calibrate(
+                    foot_avg, pelvis_avg, thigh_avg, shank_avg
+                )
+                self.calibrated = True
         # Update gait phases
         self.gait_phase.update_gaitphase(data[self.NodeNum_foot])
 
         # Calculate Extension angles
-        self.Hip_flex = self.joint_angles.calculate_Hip_Flex(pelvis_quat, thigh_quat)
-        self.Knee_flex = self.joint_angles.calculate_Knee_Flex(thigh_quat, shank_quat)
-        self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(shank_quat, foot_quat)
+        if self.calibrated:
+            self.Hip_flex = self.joint_angles.calculate_Hip_Flex(
+                pelvis_quat, thigh_quat
+            )
+            self.Hip_add = self.joint_angles.calculate_Hip_Adduction(
+                pelvis_quat, thigh_quat
+            )
+            self.Hip_rot = self.joint_angles.calculate_Hip_Internal_Rotation(
+                pelvis_quat, thigh_quat
+            )
+            self.Knee_flex = self.joint_angles.calculate_Knee_Flex(
+                thigh_quat, shank_quat
+            )
+            self.Ankle_flex = self.joint_angles.calculate_Ankle_Flex(
+                shank_quat, foot_quat
+            )
+            self.Ankle_inv = self.joint_angles.calculate_Ankle_Inversion(
+                shank_quat, foot_quat
+            )
+        else:
+            self.Hip_flex = 0.0
+            self.Hip_add = 0.0
+            self.Hip_rot = 0.0
+            self.Knee_flex = 0.0
+            self.Ankle_flex = 0.0
+            self.Ankle_inv = 0.0
 
         # Give haptic feedback (turn feedback nodes on/off)
-        if self.config["feedback_enabled"]:
+        if self.config["feedback_enabled"] and self.calibrated:
             self.give_feedback()
         else:
             self.min_feedback_state = 0
             self.max_feedback_state = 0
 
         time_now = self.iteration / self.DATARATE  # time in seconds
-
-        GB_pelvis_q = self.joint_angles.calculate_GB_quat(
-            pelvis_quat, self.joint_angles.BS_q_pelvis_inv
-        )
-        GB_thigh_q = self.joint_angles.calculate_GB_quat(
-            thigh_quat, self.joint_angles.BS_q_thigh_inv
-        )
-        GB_shank_q = self.joint_angles.calculate_GB_quat(
-            shank_quat, self.joint_angles.BS_q_shank_inv
-        )
-        GB_foot_q = self.joint_angles.calculate_GB_quat(
-            foot_quat, self.joint_angles.BS_q_foot_inv
-        )
-
-        foot_euler = IntrinsicZYXEuler(GB_foot_q)
-        pelvis_euler = IntrinsicZYXEuler(GB_pelvis_q)
-        thigh_euler = IntrinsicZYXEuler(GB_thigh_q)
-        shank_euler = IntrinsicZYXEuler(GB_shank_q)
 
         my_data = {
             "time": [time_now],
@@ -157,24 +209,15 @@ class Core(BaseApp):
             "min_feedback_state": [self.min_feedback_state],
             "max_feedback_state": [self.max_feedback_state],
             "Hip_flex": [self.Hip_flex],
+            "Hip_add": [self.Hip_add],
+            "Hip_rot": [self.Hip_rot],
             "Knee_flex": [self.Knee_flex],
             "Ankle_flex": [self.Ankle_flex],
-            "foot_yaw": [foot_euler.yaw],
-            "foot_roll": [foot_euler.roll],
-            "foot_pitch": [foot_euler.pitch],
-            "pelvis_yaw": [pelvis_euler.yaw],
-            "pelvis_roll": [pelvis_euler.roll],
-            "pelvis_pitch": [pelvis_euler.pitch],
-            "thigh_yaw": [thigh_euler.yaw],
-            "thigh_roll": [thigh_euler.roll],
-            "thigh_pitch": [thigh_euler.pitch],
-            "shank_yaw": [shank_euler.yaw],
-            "shank_roll": [shank_euler.roll],
-            "shank_pitch": [shank_euler.pitch],
+            "Ankle_inv": [self.Ankle_inv]
         }
 
-        self.my_sage.save_data(data, my_data)
-        self.my_sage.send_stream_data(data, my_data)
+        self.my_sage.save_data(YC_data, my_data)
+        self.my_sage.send_stream_data(YC_data, my_data)
 
         self.iteration += 1
         return True

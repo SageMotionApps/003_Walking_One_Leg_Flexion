@@ -1,0 +1,23 @@
+{
+  "baselineHipAngle": 7.7,
+  "feedback_delay": 0.03,
+  "feedback_enabled": false,
+  "last_connect_feedback": [
+    "18:04:ED:7E:8B:D5",
+    "18:04:ED:E7:83:15"
+  ],
+  "last_connect_sensors": [
+    "18:04:ED:FA:0F:55",
+    "18:04:ED:FA:11:1E",
+    "18:04:ED:FA:20:F6",
+    "18:04:ED:EB:24:73"
+  ],
+  "local_time": "2026-02-04-19-36-35",
+  "max_threshold": 20,
+  "min_threshold": -20,
+  "percentHipAngleIncrease": 0,
+  "save_mode": "xlsx",
+  "trial_name": "Walking_49",
+  "which_angle": "Hip Flex",
+  "which_leg": "Right Leg"
+}

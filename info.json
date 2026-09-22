@@ -106,12 +106,27 @@
       "size": 1
     },
     {
+      "name": "Hip_add",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Hip_rot",
+      "data_type": "float",
+      "size": 1
+    },
+    {
       "name": "Knee_flex",
       "data_type": "float",
       "size": 1
     },
     {
       "name": "Ankle_flex",
+      "data_type": "float",
+      "size": 1
+    },
+    {
+      "name": "Ankle_inv",
       "data_type": "float",
       "size": 1
     },
@@ -133,66 +148,6 @@
     {
       "name": "max_feedback_state",
       "data_type": "int",
-      "size": 1
-    },
-    {
-      "name": "pelvis_yaw",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "pelvis_roll",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "pelvis_pitch",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "thigh_yaw",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "thigh_roll",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "thigh_pitch",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "shank_yaw",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "shank_roll",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "shank_pitch",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "foot_yaw",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "foot_roll",
-      "data_type": "float",
-      "size": 1
-    },
-    {
-      "name": "foot_pitch",
-      "data_type": "float",
       "size": 1
     }
   ],
